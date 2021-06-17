@@ -36,8 +36,11 @@ mod app {
         let btn = p0.p0_11.into_pullup_input().degrade();
 
         let gpiote = Gpiote::new(ctx.device.GPIOTE);
-        gpiote.port().input_pin(&btn).low();
-        gpiote.port().enable_interrupt();
+        gpiote
+            .channel0()
+            .input_pin(&btn)
+            .toggle()
+            .enable_interrupt();
 
         defmt::info!("Press button 1!");
         (init::LateResources { btn, gpiote }, init::Monotonics(mono))
