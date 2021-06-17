@@ -27,6 +27,7 @@ mod app {
     #[init]
     fn init(mut ctx: init::Context) -> (init::LateResources, init::Monotonics) {
         let _clocks = Clocks::new(ctx.device.CLOCK).enable_ext_hfosc();
+
         ctx.core.DCB.enable_trace();
         ctx.core.DWT.enable_cycle_counter();
         let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, 64_000_000);
@@ -38,7 +39,7 @@ mod app {
         gpiote.port().input_pin(&btn).low();
         gpiote.port().enable_interrupt();
 
-        defmt::info!("Press button!");
+        defmt::info!("Press button 1!");
         (init::LateResources { btn, gpiote }, init::Monotonics(mono))
     }
 
@@ -54,8 +55,8 @@ mod app {
         ctx.resources.gpiote.lock(|gpiote| gpiote.reset_events());
         debounce::spawn_after(Milliseconds(30_u32)).ok();
     }
-    #[task(resources = [btn])]
 
+    #[task(resources = [btn])]
     fn debounce(mut ctx: debounce::Context) {
         static mut PRESSED_AT: Option<Instant<MyMono>> = None;
         if ctx.resources.btn.lock(|btn| btn.is_low().unwrap()) {
