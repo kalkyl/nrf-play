@@ -91,7 +91,7 @@ mod app {
                     .checked_duration_since(&instant)
                     .and_then(|dur| dur.try_into().ok());
                 if let Some(Microseconds(t)) = diff {
-                    defmt::info!("Distance: {} cm", t / 58);
+                    defmt::info!("Distance: {} cm", t as f32 / 58.0);
                 }
             }
         }
