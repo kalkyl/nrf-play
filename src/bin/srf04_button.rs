@@ -23,8 +23,8 @@ mod app {
 
     #[resources]
     struct Resources {
-        btn: Pin<Input<PullUp>>,
         gpiote: Gpiote,
+        btn: Pin<Input<PullUp>>,
         rx_pin: Pin<Input<PullDown>>,
         tx_pin: Pin<Output<PushPull>>,
     }
@@ -38,9 +38,9 @@ mod app {
         let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, 64_000_000);
 
         let p0 = Parts::new(ctx.device.P0);
+        let btn = p0.p0_11.into_pullup_input().degrade();
         let rx_pin = p0.p0_04.into_pulldown_input().degrade();
         let tx_pin = p0.p0_03.into_push_pull_output(Level::Low).degrade();
-        let btn = p0.p0_11.into_pullup_input().degrade();
 
         let gpiote = Gpiote::new(ctx.device.GPIOTE);
         gpiote
@@ -56,8 +56,8 @@ mod app {
 
         (
             init::LateResources {
-                btn,
                 gpiote,
+                btn,
                 rx_pin,
                 tx_pin,
             },
