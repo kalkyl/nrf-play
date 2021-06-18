@@ -68,6 +68,7 @@ mod app {
 
     #[task(resources = [trig_pin])]
     fn trig(mut ctx: trig::Context) {
+        // Send wave
         ctx.resources.trig_pin.lock(|pin| {
             pin.set_high().ok();
             cortex_m::asm::delay(640);
