@@ -83,18 +83,6 @@ mod app {
         }
     }
 
-    #[task(resources = [btn, trig_pin])]
-    fn debounce(mut ctx: debounce::Context) {
-        if ctx.resources.btn.lock(|btn| btn.is_low().unwrap()) {
-            // Button is pressed - send wave
-            ctx.resources.trig_pin.lock(|pin| {
-                pin.set_high().ok();
-                cortex_m::asm::delay(640); // 10us
-                pin.set_low().ok();
-            });
-        }
-    }
-
     #[task(binds = GPIOTE, resources = [gpiote, timer])]
     fn on_gpiote(ctx: on_gpiote::Context) {
         (ctx.resources.gpiote, ctx.resources.timer).lock(|gpiote, timer| {
@@ -108,5 +96,17 @@ mod app {
                 debounce::spawn_after(Milliseconds(30_u32)).ok();
             }
         });
+    }
+
+    #[task(resources = [btn, trig_pin])]
+    fn debounce(mut ctx: debounce::Context) {
+        if ctx.resources.btn.lock(|btn| btn.is_low().unwrap()) {
+            // Button is pressed - send wave
+            ctx.resources.trig_pin.lock(|pin| {
+                pin.set_high().ok();
+                cortex_m::asm::delay(640); // 10us
+                pin.set_low().ok();
+            });
+        }
     }
 }
