@@ -23,8 +23,8 @@ mod app {
 
     #[resources]
     struct Resources {
-        rx_pin: Pin<Input<PullDown>>,
-        tx_pin: Pin<Output<PushPull>>,
+        echo_pin: Pin<Input<PullDown>>,
+        trig_pin: Pin<Output<PushPull>>,
         gpiote: Gpiote,
     }
 
@@ -37,22 +37,22 @@ mod app {
         let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, 64_000_000);
 
         let p0 = Parts::new(ctx.device.P0);
-        let rx_pin = p0.p0_04.into_pulldown_input().degrade();
-        let tx_pin = p0.p0_03.into_push_pull_output(Level::Low).degrade();
+        let echo_pin = p0.p0_04.into_pulldown_input().degrade();
+        let trig_pin = p0.p0_03.into_push_pull_output(Level::Low).degrade();
 
         let gpiote = Gpiote::new(ctx.device.GPIOTE);
         gpiote
             .channel0()
-            .input_pin(&rx_pin)
+            .input_pin(&echo_pin)
             .toggle() // Trigger on both rising and falling edges
             .enable_interrupt();
 
-        tx::spawn().ok();
+        trig::spawn().ok();
 
         (
             init::LateResources {
-                rx_pin,
-                tx_pin,
+                echo_pin,
+                trig_pin,
                 gpiote,
             },
             init::Monotonics(mono),
@@ -66,30 +66,32 @@ mod app {
         }
     }
 
-    #[task(resources = [tx_pin])]
-    fn tx(mut ctx: tx::Context) {
-        ctx.resources.tx_pin.lock(|pin| {
+    #[task(resources = [trig_pin])]
+    fn trig(mut ctx: trig::Context) {
+        ctx.resources.trig_pin.lock(|pin| {
             pin.set_high().ok();
             cortex_m::asm::delay(640);
             pin.set_low().ok();
         });
-        tx::spawn_after(Milliseconds(100_u32)).ok();
+        trig::spawn_after(Milliseconds(100_u32)).ok();
     }
 
-    #[task(binds = GPIOTE, resources = [gpiote, rx_pin])]
-    fn rx(mut ctx: rx::Context) {
+    #[task(binds = GPIOTE, resources = [gpiote, echo_pin])]
+    fn on_gpiote(mut ctx: on_gpiote::Context) {
         static mut START: Option<Instant<MyMono>> = None;
         ctx.resources.gpiote.lock(|gpiote| gpiote.reset_events());
 
-        if ctx.resources.rx_pin.lock(|pin| pin.is_high().unwrap()) {
+        if ctx.resources.echo_pin.lock(|pin| pin.is_high().unwrap()) {
+            // Echo pulse started - store start time
             START.replace(monotonics::MyMono::now());
         } else {
+            // Echo pulse ended - calculate pulse duration
             if let Some(instant) = START.take() {
                 let diff: Option<Microseconds> = monotonics::MyMono::now()
                     .checked_duration_since(&instant)
                     .and_then(|dur| dur.try_into().ok());
                 if let Some(Microseconds(t)) = diff {
-                    defmt::info!("Pulse length: {} us", t);
+                    defmt::info!("Distance: {} cm", t / 58);
                 }
             }
         }
