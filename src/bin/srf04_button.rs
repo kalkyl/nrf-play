@@ -72,34 +72,44 @@ mod app {
         }
     }
 
-    #[task(binds = GPIOTE, resources = [gpiote, rx_pin])]
-    fn on_gpiote(ctx: on_gpiote::Context) {
-        static mut START: Option<Instant<MyMono>> = None;
-        (ctx.resources.gpiote, ctx.resources.rx_pin).lock(|gpiote, rx_pin| {
+    #[task(binds = GPIOTE, resources = [gpiote])]
+    fn on_gpiote(mut ctx: on_gpiote::Context) {
+        ctx.resources.gpiote.lock(|gpiote| {
             if gpiote.channel0().is_event_triggered() {
+                // rx_pin toggle event triggered the interrupt
                 gpiote.reset_events();
-                if rx_pin.is_high().unwrap() {
-                    START.replace(monotonics::MyMono::now());
-                } else {
-                    if let Some(instant) = START.take() {
-                        let diff: Option<Microseconds> = monotonics::MyMono::now()
-                            .checked_duration_since(&instant)
-                            .and_then(|dur| dur.try_into().ok());
-                        if let Some(Microseconds(t)) = diff {
-                            defmt::info!("Pulse length: {} us", t);
-                        }
-                    }
-                }
+                on_rx_toggled::spawn().ok();
             } else {
+                // btn lo_to_hi event triggered the interrupt
                 gpiote.reset_events();
                 debounce::spawn_after(Milliseconds(30_u32)).ok();
             }
         });
     }
 
+    #[task(resources = [rx_pin])]
+    fn on_rx_toggled(mut ctx: on_rx_toggled::Context) {
+        static mut START: Option<Instant<MyMono>> = None;
+        if ctx.resources.rx_pin.lock(|pin| pin.is_high().unwrap()) {
+            // Echo pulse started - store the start time
+            START.replace(monotonics::MyMono::now());
+        } else {
+            // Echo pulse ended - calculate pulse duration
+            if let Some(instant) = START.take() {
+                let diff: Option<Microseconds> = monotonics::MyMono::now()
+                    .checked_duration_since(&instant)
+                    .and_then(|dur| dur.try_into().ok());
+                if let Some(Microseconds(t)) = diff {
+                    defmt::info!("Pulse length: {} us", t);
+                }
+            }
+        }
+    }
+
     #[task(resources = [btn, tx_pin])]
     fn debounce(mut ctx: debounce::Context) {
         if ctx.resources.btn.lock(|btn| btn.is_low().unwrap()) {
+            // Button was pressed - send wave
             ctx.resources.tx_pin.lock(|pin| {
                 pin.set_high().ok();
                 cortex_m::asm::delay(640);
