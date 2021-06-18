@@ -89,7 +89,7 @@ mod app {
                     .checked_duration_since(&instant)
                     .and_then(|dur| dur.try_into().ok());
                 if let Some(Microseconds(t)) = diff {
-                    defmt::info!("Distance: {} cm", t / 29_412);
+                    defmt::info!("Pulse length: {} us", t);
                 }
             }
         }
