@@ -50,13 +50,6 @@ mod app {
         )
     }
 
-    #[idle]
-    fn idle(_: idle::Context) -> ! {
-        loop {
-            cortex_m::asm::nop();
-        }
-    }
-
     #[task(resources = [tx_pin, tx_instant])]
     fn tx(mut ctx: tx::Context) {
         ctx.resources.tx_pin.lock(|pin| {
