@@ -9,7 +9,7 @@ mod app {
     use dwt_systick_monotonic::DwtSystick;
     use nrf52840_hal::{
         clocks::Clocks,
-        gpio::{p0::Parts, Input, Level, Output, Pin, PullDown, PushPull},
+        gpio::{p0::Parts, Input, Level, Output, Pin, PullDown, PullUp, PushPull},
         gpiote::Gpiote,
         prelude::*,
     };
@@ -23,9 +23,10 @@ mod app {
 
     #[resources]
     struct Resources {
+        btn: Pin<Input<PullUp>>,
+        gpiote: Gpiote,
         rx_pin: Pin<Input<PullDown>>,
         tx_pin: Pin<Output<PushPull>>,
-        gpiote: Gpiote,
     }
 
     #[init]
@@ -39,21 +40,26 @@ mod app {
         let p0 = Parts::new(ctx.device.P0);
         let rx_pin = p0.p0_04.into_pulldown_input().degrade();
         let tx_pin = p0.p0_03.into_push_pull_output(Level::Low).degrade();
+        let btn = p0.p0_11.into_pullup_input().degrade();
 
         let gpiote = Gpiote::new(ctx.device.GPIOTE);
         gpiote
             .channel0()
             .input_pin(&rx_pin)
-            .toggle() // Trigger on both rising and falling edges
+            .toggle()
             .enable_interrupt();
-
-        tx::spawn().ok();
+        gpiote
+            .channel1()
+            .input_pin(&btn)
+            .hi_to_lo()
+            .enable_interrupt();
 
         (
             init::LateResources {
+                btn,
+                gpiote,
                 rx_pin,
                 tx_pin,
-                gpiote,
             },
             init::Monotonics(mono),
         )
@@ -66,32 +72,39 @@ mod app {
         }
     }
 
-    #[task(resources = [tx_pin])]
-    fn tx(mut ctx: tx::Context) {
-        ctx.resources.tx_pin.lock(|pin| {
-            pin.set_high().ok();
-            cortex_m::asm::delay(640);
-            pin.set_low().ok();
+    #[task(binds = GPIOTE, resources = [gpiote, rx_pin])]
+    fn on_gpiote(ctx: on_gpiote::Context) {
+        static mut START: Option<Instant<MyMono>> = None;
+        (ctx.resources.gpiote, ctx.resources.rx_pin).lock(|gpiote, rx_pin| {
+            if gpiote.channel0().is_event_triggered() {
+                gpiote.reset_events();
+                if rx_pin.is_high().unwrap() {
+                    START.replace(monotonics::MyMono::now());
+                } else {
+                    if let Some(instant) = START.take() {
+                        let diff: Option<Microseconds> = monotonics::MyMono::now()
+                            .checked_duration_since(&instant)
+                            .and_then(|dur| dur.try_into().ok());
+                        if let Some(Microseconds(t)) = diff {
+                            defmt::info!("Pulse length: {} us", t);
+                        }
+                    }
+                }
+            } else {
+                gpiote.reset_events();
+                debounce::spawn_after(Milliseconds(30_u32)).ok();
+            }
         });
-        tx::spawn_after(Milliseconds(100_u32)).ok();
     }
 
-    #[task(binds = GPIOTE, resources = [gpiote, rx_pin])]
-    fn rx(mut ctx: rx::Context) {
-        static mut START: Option<Instant<MyMono>> = None;
-        ctx.resources.gpiote.lock(|gpiote| gpiote.reset_events());
-
-        if ctx.resources.rx_pin.lock(|pin| pin.is_high().unwrap()) {
-            START.replace(monotonics::MyMono::now());
-        } else {
-            if let Some(instant) = START.take() {
-                let diff: Option<Microseconds> = monotonics::MyMono::now()
-                    .checked_duration_since(&instant)
-                    .and_then(|dur| dur.try_into().ok());
-                if let Some(Microseconds(t)) = diff {
-                    defmt::info!("Pulse length: {} us", t);
-                }
-            }
+    #[task(resources = [btn, tx_pin])]
+    fn debounce(mut ctx: debounce::Context) {
+        if ctx.resources.btn.lock(|btn| btn.is_low().unwrap()) {
+            ctx.resources.tx_pin.lock(|pin| {
+                pin.set_high().ok();
+                cortex_m::asm::delay(640);
+                pin.set_low().ok();
+            });
         }
     }
 }
