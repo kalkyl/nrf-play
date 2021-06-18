@@ -78,7 +78,7 @@ mod app {
             if gpiote.channel0().is_event_triggered() {
                 // rx_pin toggle event triggered the interrupt
                 gpiote.reset_events();
-                on_rx_toggled::spawn().ok();
+                on_rx_toggle::spawn().ok();
             } else {
                 // btn hi_to_lo event triggered the interrupt
                 gpiote.reset_events();
@@ -88,7 +88,7 @@ mod app {
     }
 
     #[task(resources = [rx_pin])]
-    fn on_rx_toggled(mut ctx: on_rx_toggled::Context) {
+    fn on_rx_toggle(mut ctx: on_rx_toggle::Context) {
         static mut START: Option<Instant<MyMono>> = None;
         if ctx.resources.rx_pin.lock(|pin| pin.is_high().unwrap()) {
             // Echo pulse started - store the start time
