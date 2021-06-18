@@ -68,10 +68,9 @@ mod app {
 
     #[task(resources = [trig_pin])]
     fn send_wave(mut ctx: send_wave::Context) {
-        // Send wave
         ctx.resources.trig_pin.lock(|pin| {
             pin.set_high().ok();
-            cortex_m::asm::delay(640);
+            cortex_m::asm::delay(640); //10us
             pin.set_low().ok();
         });
         send_wave::spawn_after(Milliseconds(100_u32)).ok();
