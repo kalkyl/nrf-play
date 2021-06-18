@@ -47,7 +47,7 @@ mod app {
             .toggle() // Trigger on both rising and falling edges
             .enable_interrupt();
 
-        trig::spawn().ok();
+        send_wave::spawn().ok();
 
         (
             init::LateResources {
@@ -67,14 +67,14 @@ mod app {
     }
 
     #[task(resources = [trig_pin])]
-    fn trig(mut ctx: trig::Context) {
+    fn send_wave(mut ctx: send_wave::Context) {
         // Send wave
         ctx.resources.trig_pin.lock(|pin| {
             pin.set_high().ok();
             cortex_m::asm::delay(640);
             pin.set_low().ok();
         });
-        trig::spawn_after(Milliseconds(100_u32)).ok();
+        send_wave::spawn_after(Milliseconds(100_u32)).ok();
     }
 
     #[task(binds = GPIOTE, resources = [gpiote, echo_pin])]
