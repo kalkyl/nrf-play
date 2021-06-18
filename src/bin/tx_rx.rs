@@ -8,6 +8,7 @@ mod app {
     use core::convert::TryInto;
     use dwt_systick_monotonic::DwtSystick;
     use nrf52840_hal::{
+        clocks::Clocks,
         gpio::{p0::Parts, Level, Output, Pin, PushPull},
         gpiote::Gpiote,
         prelude::*,
@@ -27,6 +28,8 @@ mod app {
 
     #[init]
     fn init(mut ctx: init::Context) -> (init::LateResources, init::Monotonics) {
+        let _clocks = Clocks::new(ctx.device.CLOCK).enable_ext_hfosc();
+
         ctx.core.DCB.enable_trace();
         ctx.core.DWT.enable_cycle_counter();
         let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, 64_000_000);
@@ -48,6 +51,13 @@ mod app {
             init::LateResources { gpiote, tx_pin },
             init::Monotonics(mono),
         )
+    }
+
+    #[idle]
+    fn idle(_: idle::Context) -> ! {
+        loop {
+            cortex_m::asm::nop();
+        }
     }
 
     #[task(resources = [tx_pin, tx_instant])]
