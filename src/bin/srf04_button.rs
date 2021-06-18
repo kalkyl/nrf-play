@@ -80,7 +80,7 @@ mod app {
                 gpiote.reset_events();
                 on_rx_toggled::spawn().ok();
             } else {
-                // btn lo_to_hi event triggered the interrupt
+                // btn hi_to_lo event triggered the interrupt
                 gpiote.reset_events();
                 debounce::spawn_after(Milliseconds(30_u32)).ok();
             }
