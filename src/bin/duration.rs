@@ -39,7 +39,7 @@ mod app {
         gpiote
             .channel0()
             .input_pin(&btn)
-            .toggle()
+            .toggle() // Trigger on both rising and falling edges
             .enable_interrupt();
 
         defmt::info!("Press button 1!");
@@ -68,7 +68,7 @@ mod app {
             if let Some(instant) = PRESSED_AT.take() {
                 let diff: Option<Milliseconds> = monotonics::MyMono::now()
                     .checked_duration_since(&instant)
-                    .and_then(|d| d.try_into().ok());
+                    .and_then(|dur| dur.try_into().ok());
                 if let Some(Milliseconds(t)) = diff {
                     defmt::info!("Pressed for {} ms", t);
                 }
