@@ -109,7 +109,7 @@ mod app {
     #[task(resources = [btn, trig_pin])]
     fn debounce(mut ctx: debounce::Context) {
         if ctx.resources.btn.lock(|btn| btn.is_low().unwrap()) {
-            // Button was pressed - send wave
+            // Button is pressed - send wave
             ctx.resources.trig_pin.lock(|pin| {
                 pin.set_high().ok();
                 cortex_m::asm::delay(640);
