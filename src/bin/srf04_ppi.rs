@@ -47,7 +47,7 @@ mod app {
             .hi_to_lo()
             .enable_interrupt();
 
-        let timer = Timer::one_shot(ctx.device.TIMER0);
+        let timer = Timer::new(ctx.device.TIMER0);
 
         let mut ppi = ppi::Parts::new(ctx.device.PPI);
         ppi.ppi0.set_event_endpoint(gpiote.channel0().event());
@@ -81,7 +81,7 @@ mod app {
     fn send_wave(mut ctx: send_wave::Context) {
         ctx.resources.trig_pin.lock(|pin| {
             pin.set_high().ok();
-            cortex_m::asm::delay(640); //10us
+            cortex_m::asm::delay(640); // 10us
             pin.set_low().ok();
         });
         send_wave::spawn_after(Milliseconds(100_u32)).ok();
@@ -89,9 +89,9 @@ mod app {
 
     #[task(binds = GPIOTE, resources = [gpiote, timer])]
     fn on_gpiote(mut ctx: on_gpiote::Context) {
+        ctx.resources.gpiote.lock(|gpiote| gpiote.reset_events());
         ctx.resources
             .timer
             .lock(|timer| defmt::info!("Distance: {} cm", timer.read() as f32 / 58.0));
-        ctx.resources.gpiote.lock(|gpiote| gpiote.reset_events());
     }
 }
