@@ -25,8 +25,8 @@ mod app {
     struct Resources {
         gpiote: Gpiote,
         btn: Pin<Input<PullUp>>,
-        rx_pin: Pin<Input<PullDown>>,
-        tx_pin: Pin<Output<PushPull>>,
+        echo_pin: Pin<Input<PullDown>>,
+        trig_pin: Pin<Output<PushPull>>,
     }
 
     #[init]
@@ -39,13 +39,13 @@ mod app {
 
         let p0 = Parts::new(ctx.device.P0);
         let btn = p0.p0_11.into_pullup_input().degrade();
-        let rx_pin = p0.p0_04.into_pulldown_input().degrade();
-        let tx_pin = p0.p0_03.into_push_pull_output(Level::Low).degrade();
+        let echo_pin = p0.p0_04.into_pulldown_input().degrade();
+        let trig_pin = p0.p0_03.into_push_pull_output(Level::Low).degrade();
 
         let gpiote = Gpiote::new(ctx.device.GPIOTE);
         gpiote
             .channel0()
-            .input_pin(&rx_pin)
+            .input_pin(&echo_pin)
             .toggle()
             .enable_interrupt();
         gpiote
@@ -58,8 +58,8 @@ mod app {
             init::LateResources {
                 gpiote,
                 btn,
-                rx_pin,
-                tx_pin,
+                echo_pin,
+                trig_pin,
             },
             init::Monotonics(mono),
         )
@@ -76,9 +76,9 @@ mod app {
     fn on_gpiote(mut ctx: on_gpiote::Context) {
         ctx.resources.gpiote.lock(|gpiote| {
             if gpiote.channel0().is_event_triggered() {
-                // rx_pin toggle event triggered the interrupt
+                // echo_pin toggle event triggered the interrupt
                 gpiote.reset_events();
-                on_rx_toggle::spawn().ok();
+                on_echo_toggle::spawn().ok();
             } else {
                 // btn hi_to_lo event triggered the interrupt
                 gpiote.reset_events();
@@ -87,10 +87,10 @@ mod app {
         });
     }
 
-    #[task(resources = [rx_pin])]
-    fn on_rx_toggle(mut ctx: on_rx_toggle::Context) {
+    #[task(resources = [echo_pin])]
+    fn on_echo_toggle(mut ctx: on_echo_toggle::Context) {
         static mut START: Option<Instant<MyMono>> = None;
-        if ctx.resources.rx_pin.lock(|pin| pin.is_high().unwrap()) {
+        if ctx.resources.echo_pin.lock(|pin| pin.is_high().unwrap()) {
             // Echo pulse started - store the start time
             START.replace(monotonics::MyMono::now());
         } else {
@@ -106,11 +106,11 @@ mod app {
         }
     }
 
-    #[task(resources = [btn, tx_pin])]
+    #[task(resources = [btn, trig_pin])]
     fn debounce(mut ctx: debounce::Context) {
         if ctx.resources.btn.lock(|btn| btn.is_low().unwrap()) {
             // Button was pressed - send wave
-            ctx.resources.tx_pin.lock(|pin| {
+            ctx.resources.trig_pin.lock(|pin| {
                 pin.set_high().ok();
                 cortex_m::asm::delay(640);
                 pin.set_low().ok();
