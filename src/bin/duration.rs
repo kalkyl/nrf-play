@@ -18,14 +18,17 @@ mod app {
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<64_000_000>; // 64 MHz
 
-    #[resources]
-    struct Resources {
+    #[shared]
+    struct Shared {}
+
+    #[local]
+    struct Local {
         btn: Pin<Input<PullUp>>,
         gpiote: Gpiote,
     }
 
     #[init]
-    fn init(mut ctx: init::Context) -> (init::LateResources, init::Monotonics) {
+    fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         let _clocks = Clocks::new(ctx.device.CLOCK).enable_ext_hfosc();
 
         ctx.core.DCB.enable_trace();
@@ -43,29 +46,26 @@ mod app {
             .enable_interrupt();
 
         defmt::info!("Press button 1!");
-        (init::LateResources { btn, gpiote }, init::Monotonics(mono))
+        (Shared {}, Local { btn, gpiote }, init::Monotonics(mono))
     }
 
     #[idle]
     fn idle(_: idle::Context) -> ! {
-        loop {
-            cortex_m::asm::nop();
-        }
+        loop {}
     }
 
-    #[task(binds = GPIOTE, resources = [gpiote])]
-    fn on_gpiote(mut ctx: on_gpiote::Context) {
-        ctx.resources.gpiote.lock(|gpiote| gpiote.reset_events());
+    #[task(binds = GPIOTE, local = [gpiote])]
+    fn on_gpiote(ctx: on_gpiote::Context) {
+        ctx.local.gpiote.reset_events();
         debounce::spawn_after(Milliseconds(30_u32)).ok();
     }
 
-    #[task(resources = [btn])]
-    fn debounce(mut ctx: debounce::Context) {
-        static mut PRESSED_AT: Option<Instant<MyMono>> = None;
-        if ctx.resources.btn.lock(|btn| btn.is_low().unwrap()) {
-            PRESSED_AT.replace(monotonics::MyMono::now());
+    #[task(local = [btn, pressed_at: Option<Instant<MyMono>> = None])]
+    fn debounce(ctx: debounce::Context) {
+        if ctx.local.btn.is_low().unwrap() {
+            ctx.local.pressed_at.replace(monotonics::MyMono::now());
         } else {
-            if let Some(instant) = PRESSED_AT.take() {
+            if let Some(instant) = ctx.local.pressed_at.take() {
                 let diff: Option<Milliseconds> = monotonics::MyMono::now()
                     .checked_duration_since(&instant)
                     .and_then(|dur| dur.try_into().ok());

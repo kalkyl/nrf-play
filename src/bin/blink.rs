@@ -2,55 +2,53 @@
 #![no_std]
 
 use nrf_play as _; // global logger + panicking-behavior + memory layout
+mod mono;
 
 #[rtic::app(device = nrf52840_hal::pac, peripherals = true, dispatchers = [UARTE1])]
 mod app {
-    use dwt_systick_monotonic::DwtSystick;
+    use super::mono::MonoTimer;
     use nrf52840_hal::{
         gpio::{p0::Parts, Level, Output, Pin, PushPull},
+        pac::TIMER0,
         prelude::*,
     };
     use rtic::time::duration::Seconds;
 
-    #[monotonic(binds = SysTick, default = true)]
-    type MyMono = DwtSystick<64_000_000>; // 64 MHz
+    #[monotonic(binds = TIMER0, default = true)]
+    type MyMono = MonoTimer<TIMER0>;
 
-    #[resources]
-    struct Resources {
+    #[shared]
+    struct Shared {}
+
+    #[local]
+    struct Local {
         led: Pin<Output<PushPull>>,
     }
 
     #[init]
-    fn init(mut ctx: init::Context) -> (init::LateResources, init::Monotonics) {
-        ctx.core.DCB.enable_trace();
-        ctx.core.DWT.enable_cycle_counter();
-        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, 64_000_000);
-
+    fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
+        let mono = MonoTimer::new(ctx.device.TIMER0);
         let p0 = Parts::new(ctx.device.P0);
         let led = p0.p0_13.into_push_pull_output(Level::High).degrade();
-
         defmt::info!("Hello world!");
-        blink::spawn_after(Seconds(1_u32)).ok();
-        (init::LateResources { led }, init::Monotonics(mono))
+        blink::spawn().ok();
+        (Shared {}, Local { led }, init::Monotonics(mono))
     }
 
     #[idle]
     fn idle(_: idle::Context) -> ! {
-        loop {
-            cortex_m::asm::nop();
-        }
+        loop {}
     }
 
-    #[task(resources = [led])]
-    fn blink(mut ctx: blink::Context) {
+    #[task(local = [led])]
+    fn blink(ctx: blink::Context) {
         defmt::info!("Blink!");
-        ctx.resources.led.lock(|led| {
-            if led.is_set_low().unwrap() {
-                led.set_high().ok();
-            } else {
-                led.set_low().ok();
-            }
-        });
+        let led = ctx.local.led;
+        if led.is_set_low().unwrap() {
+            led.set_high().ok();
+        } else {
+            led.set_low().ok();
+        }
         blink::spawn_after(Seconds(1_u32)).ok();
     }
 }

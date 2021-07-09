@@ -18,16 +18,19 @@ mod app {
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<64_000_000>; // 64 MHz
 
-    #[resources]
-    struct Resources {
-        gpiote: Gpiote,
-        tx_pin: Pin<Output<PushPull>>,
-        #[init(None)]
+    #[shared]
+    struct Shared {
         tx_instant: Option<Instant<MyMono>>,
     }
 
+    #[local]
+    struct Local {
+        gpiote: Gpiote,
+        tx_pin: Pin<Output<PushPull>>,
+    }
+
     #[init]
-    fn init(mut ctx: init::Context) -> (init::LateResources, init::Monotonics) {
+    fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         let _clocks = Clocks::new(ctx.device.CLOCK).enable_ext_hfosc();
 
         ctx.core.DCB.enable_trace();
@@ -48,40 +51,37 @@ mod app {
         tx::spawn().ok();
 
         (
-            init::LateResources { gpiote, tx_pin },
+            Shared { tx_instant: None },
+            Local { gpiote, tx_pin },
             init::Monotonics(mono),
         )
     }
 
     #[idle]
     fn idle(_: idle::Context) -> ! {
-        loop {
-            cortex_m::asm::nop();
-        }
+        loop {}
     }
 
-    #[task(resources = [tx_pin, tx_instant])]
+    #[task(shared = [tx_instant], local = [tx_pin])]
     fn tx(mut ctx: tx::Context) {
-        ctx.resources.tx_pin.lock(|pin| {
-            pin.set_high().ok();
-            cortex_m::asm::delay(640);
-            pin.set_low().ok();
-        });
-        ctx.resources
+        ctx.local.tx_pin.set_high().ok();
+        cortex_m::asm::delay(640);
+        ctx.local.tx_pin.set_low().ok();
+        ctx.shared
             .tx_instant
             .lock(|t| t.replace(monotonics::MyMono::now()));
         tx::spawn_after(Milliseconds(100_u32)).ok();
     }
 
-    #[task(binds = GPIOTE, resources = [gpiote, tx_instant])]
+    #[task(binds = GPIOTE, shared = [tx_instant], local = [gpiote])]
     fn rx(mut ctx: rx::Context) {
-        ctx.resources.gpiote.lock(|gpiote| gpiote.reset_events());
-        if let Some(instant) = ctx.resources.tx_instant.lock(|t| t.take()) {
+        ctx.local.gpiote.reset_events();
+        if let Some(instant) = ctx.shared.tx_instant.lock(|t| t.take()) {
             let diff: Option<Milliseconds> = monotonics::MyMono::now()
                 .checked_duration_since(&instant)
                 .and_then(|dur| dur.try_into().ok());
             if let Some(Milliseconds(t)) = diff {
-                defmt::info!("Echo received after {} ms", t);
+                defmt::info!("Response received after {} ms", t);
             }
         }
     }

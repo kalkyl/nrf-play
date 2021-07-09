@@ -21,15 +21,17 @@ mod app {
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<64_000_000>; // 64 MHz
 
-    #[resources]
-    struct Resources {
+    #[shared]
+    struct Shared {}
+    #[local]
+    struct Local {
         echo_pin: Pin<Input<PullDown>>,
         trig_pin: Pin<Output<PushPull>>,
         gpiote: Gpiote,
     }
 
     #[init]
-    fn init(mut ctx: init::Context) -> (init::LateResources, init::Monotonics) {
+    fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         let _clocks = Clocks::new(ctx.device.CLOCK).enable_ext_hfosc();
 
         ctx.core.DCB.enable_trace();
@@ -50,7 +52,8 @@ mod app {
         send_wave::spawn().ok();
 
         (
-            init::LateResources {
+            Shared {},
+            Local {
                 echo_pin,
                 trig_pin,
                 gpiote,
@@ -61,32 +64,26 @@ mod app {
 
     #[idle]
     fn idle(_: idle::Context) -> ! {
-        loop {
-            cortex_m::asm::nop();
-        }
+        loop {}
     }
 
-    #[task(resources = [trig_pin])]
-    fn send_wave(mut ctx: send_wave::Context) {
-        ctx.resources.trig_pin.lock(|pin| {
-            pin.set_high().ok();
-            cortex_m::asm::delay(640); //10us
-            pin.set_low().ok();
-        });
+    #[task(local = [trig_pin])]
+    fn send_wave(ctx: send_wave::Context) {
+        ctx.local.trig_pin.set_high().ok();
+        cortex_m::asm::delay(640); //10us
+        ctx.local.trig_pin.set_low().ok();
         send_wave::spawn_after(Milliseconds(100_u32)).ok();
     }
 
-    #[task(binds = GPIOTE, resources = [gpiote, echo_pin])]
-    fn on_gpiote(mut ctx: on_gpiote::Context) {
-        static mut START: Option<Instant<MyMono>> = None;
-        ctx.resources.gpiote.lock(|gpiote| gpiote.reset_events());
-
-        if ctx.resources.echo_pin.lock(|pin| pin.is_high().unwrap()) {
+    #[task(binds = GPIOTE, local = [gpiote, echo_pin, start: Option<Instant<MyMono>> = None])]
+    fn on_gpiote(ctx: on_gpiote::Context) {
+        ctx.local.gpiote.reset_events();
+        if ctx.local.echo_pin.is_high().unwrap() {
             // Echo pulse started - store start time
-            START.replace(monotonics::MyMono::now());
+            ctx.local.start.replace(monotonics::MyMono::now());
         } else {
             // Echo pulse ended - calculate pulse duration
-            if let Some(instant) = START.take() {
+            if let Some(instant) = ctx.local.start.take() {
                 let diff: Option<Microseconds> = monotonics::MyMono::now()
                     .checked_duration_since(&instant)
                     .and_then(|dur| dur.try_into().ok());

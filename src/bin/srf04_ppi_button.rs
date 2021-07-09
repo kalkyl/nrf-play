@@ -20,8 +20,11 @@ mod app {
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<64_000_000>; // 64 MHz
 
-    #[resources]
-    struct Resources {
+    #[shared]
+    struct Shared {}
+
+    #[local]
+    struct Local {
         gpiote: Gpiote,
         btn: Pin<Input<PullUp>>,
         trig_pin: Pin<Output<PushPull>>,
@@ -29,7 +32,7 @@ mod app {
     }
 
     #[init]
-    fn init(mut ctx: init::Context) -> (init::LateResources, init::Monotonics) {
+    fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         let _clocks = Clocks::new(ctx.device.CLOCK).enable_ext_hfosc();
 
         ctx.core.DCB.enable_trace();
@@ -66,7 +69,8 @@ mod app {
         ppi.ppi1.enable();
 
         (
-            init::LateResources {
+            Shared {},
+            Local {
                 gpiote,
                 btn,
                 trig_pin,
@@ -78,35 +82,30 @@ mod app {
 
     #[idle]
     fn idle(_: idle::Context) -> ! {
-        loop {
-            cortex_m::asm::nop();
+        loop {}
+    }
+
+    #[task(binds = GPIOTE, local = [gpiote, timer])]
+    fn on_gpiote(ctx: on_gpiote::Context) {
+        let (gpiote, timer) = (ctx.local.gpiote, ctx.local.timer);
+        if gpiote.channel1().is_event_triggered() {
+            // Echo pulse end triggered the interrupt
+            gpiote.reset_events();
+            defmt::info!("Distance: {} cm", timer.read() as f32 / 58.0);
+        } else {
+            // Button hi_to_low triggered the interrupt
+            gpiote.reset_events();
+            debounce::spawn_after(Milliseconds(30_u32)).ok();
         }
     }
 
-    #[task(binds = GPIOTE, resources = [gpiote, timer])]
-    fn on_gpiote(ctx: on_gpiote::Context) {
-        (ctx.resources.gpiote, ctx.resources.timer).lock(|gpiote, timer| {
-            if gpiote.channel1().is_event_triggered() {
-                // Echo pulse end triggered the interrupt
-                gpiote.reset_events();
-                defmt::info!("Distance: {} cm", timer.read() as f32 / 58.0);
-            } else {
-                // Button hi_to_low triggered the interrupt
-                gpiote.reset_events();
-                debounce::spawn_after(Milliseconds(30_u32)).ok();
-            }
-        });
-    }
-
-    #[task(resources = [btn, trig_pin])]
-    fn debounce(mut ctx: debounce::Context) {
-        if ctx.resources.btn.lock(|btn| btn.is_low().unwrap()) {
+    #[task(local = [btn, trig_pin])]
+    fn debounce(ctx: debounce::Context) {
+        if ctx.local.btn.is_low().unwrap() {
             // Button is pressed - send wave
-            ctx.resources.trig_pin.lock(|pin| {
-                pin.set_high().ok();
-                cortex_m::asm::delay(640); // 10us
-                pin.set_low().ok();
-            });
+            ctx.local.trig_pin.set_high().ok();
+            cortex_m::asm::delay(640); // 10us
+            ctx.local.trig_pin.set_low().ok();
         }
     }
 }

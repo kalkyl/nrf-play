@@ -20,15 +20,18 @@ mod app {
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<64_000_000>; // 64 MHz
 
-    #[resources]
-    struct Resources {
+    #[shared]
+    struct Shared {}
+
+    #[local]
+    struct Local {
         trig_pin: Pin<Output<PushPull>>,
         gpiote: Gpiote,
         timer: Timer<TIMER0>,
     }
 
     #[init]
-    fn init(mut ctx: init::Context) -> (init::LateResources, init::Monotonics) {
+    fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         let _clocks = Clocks::new(ctx.device.CLOCK).enable_ext_hfosc();
 
         ctx.core.DCB.enable_trace();
@@ -61,7 +64,8 @@ mod app {
         send_wave::spawn().ok();
 
         (
-            init::LateResources {
+            Shared {},
+            Local {
                 trig_pin,
                 gpiote,
                 timer,
@@ -72,26 +76,20 @@ mod app {
 
     #[idle]
     fn idle(_: idle::Context) -> ! {
-        loop {
-            cortex_m::asm::nop();
-        }
+        loop {}
     }
 
-    #[task(resources = [trig_pin])]
-    fn send_wave(mut ctx: send_wave::Context) {
-        ctx.resources.trig_pin.lock(|pin| {
-            pin.set_high().ok();
-            cortex_m::asm::delay(640); // 10us
-            pin.set_low().ok();
-        });
+    #[task(local = [trig_pin])]
+    fn send_wave(ctx: send_wave::Context) {
+        ctx.local.trig_pin.set_high().ok();
+        cortex_m::asm::delay(640); // 10us
+        ctx.local.trig_pin.set_low().ok();
         send_wave::spawn_after(Milliseconds(100_u32)).ok();
     }
 
-    #[task(binds = GPIOTE, resources = [gpiote, timer])]
-    fn on_gpiote(mut ctx: on_gpiote::Context) {
-        ctx.resources.gpiote.lock(|gpiote| gpiote.reset_events());
-        ctx.resources
-            .timer
-            .lock(|timer| defmt::info!("Distance: {} cm", timer.read() as f32 / 58.0));
+    #[task(binds = GPIOTE, local = [gpiote, timer])]
+    fn on_gpiote(ctx: on_gpiote::Context) {
+        ctx.local.gpiote.reset_events();
+        defmt::info!("Distance: {} cm", ctx.local.timer.read() as f32 / 58.0);
     }
 }

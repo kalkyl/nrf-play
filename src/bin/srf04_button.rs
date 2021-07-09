@@ -21,8 +21,11 @@ mod app {
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<64_000_000>; // 64 MHz
 
-    #[resources]
-    struct Resources {
+    #[shared]
+    struct Shared {}
+
+    #[local]
+    struct Local {
         gpiote: Gpiote,
         btn: Pin<Input<PullUp>>,
         echo_pin: Pin<Input<PullDown>>,
@@ -30,7 +33,7 @@ mod app {
     }
 
     #[init]
-    fn init(mut ctx: init::Context) -> (init::LateResources, init::Monotonics) {
+    fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         let _clocks = Clocks::new(ctx.device.CLOCK).enable_ext_hfosc();
 
         ctx.core.DCB.enable_trace();
@@ -55,7 +58,8 @@ mod app {
             .enable_interrupt();
 
         (
-            init::LateResources {
+            Shared {},
+            Local {
                 gpiote,
                 btn,
                 echo_pin,
@@ -67,35 +71,31 @@ mod app {
 
     #[idle]
     fn idle(_: idle::Context) -> ! {
-        loop {
-            cortex_m::asm::nop();
+        loop {}
+    }
+
+    #[task(binds = GPIOTE, local = [gpiote])]
+    fn on_gpiote(ctx: on_gpiote::Context) {
+        let gpiote = ctx.local.gpiote;
+        if gpiote.channel0().is_event_triggered() {
+            // echo_pin toggle event triggered the interrupt
+            gpiote.reset_events();
+            on_echo_toggle::spawn().ok();
+        } else {
+            // btn hi_to_lo event triggered the interrupt
+            gpiote.reset_events();
+            debounce::spawn_after(Milliseconds(30_u32)).ok();
         }
     }
 
-    #[task(binds = GPIOTE, resources = [gpiote])]
-    fn on_gpiote(mut ctx: on_gpiote::Context) {
-        ctx.resources.gpiote.lock(|gpiote| {
-            if gpiote.channel0().is_event_triggered() {
-                // echo_pin toggle event triggered the interrupt
-                gpiote.reset_events();
-                on_echo_toggle::spawn().ok();
-            } else {
-                // btn hi_to_lo event triggered the interrupt
-                gpiote.reset_events();
-                debounce::spawn_after(Milliseconds(30_u32)).ok();
-            }
-        });
-    }
-
-    #[task(resources = [echo_pin])]
-    fn on_echo_toggle(mut ctx: on_echo_toggle::Context) {
-        static mut START: Option<Instant<MyMono>> = None;
-        if ctx.resources.echo_pin.lock(|pin| pin.is_high().unwrap()) {
+    #[task(local = [echo_pin, start: Option<Instant<MyMono>> = None])]
+    fn on_echo_toggle(ctx: on_echo_toggle::Context) {
+        if ctx.local.echo_pin.is_high().unwrap() {
             // Echo pulse started - store the start time
-            START.replace(monotonics::MyMono::now());
+            ctx.local.start.replace(monotonics::MyMono::now());
         } else {
             // Echo pulse ended - calculate pulse duration
-            if let Some(instant) = START.take() {
+            if let Some(instant) = ctx.local.start.take() {
                 let diff: Option<Microseconds> = monotonics::MyMono::now()
                     .checked_duration_since(&instant)
                     .and_then(|dur| dur.try_into().ok());
@@ -106,15 +106,13 @@ mod app {
         }
     }
 
-    #[task(resources = [btn, trig_pin])]
-    fn debounce(mut ctx: debounce::Context) {
-        if ctx.resources.btn.lock(|btn| btn.is_low().unwrap()) {
+    #[task(local = [btn, trig_pin])]
+    fn debounce(ctx: debounce::Context) {
+        if ctx.local.btn.is_low().unwrap() {
             // Button is pressed - send wave
-            ctx.resources.trig_pin.lock(|pin| {
-                pin.set_high().ok();
-                cortex_m::asm::delay(640);
-                pin.set_low().ok();
-            });
+            ctx.local.trig_pin.set_high().ok();
+            cortex_m::asm::delay(640);
+            ctx.local.trig_pin.set_low().ok();
         }
     }
 }
