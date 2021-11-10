@@ -3,20 +3,22 @@
 
 use nrf_play as _; // global logger + panicking-behavior + memory layout
 
-#[rtic::app(device = nrf52840_hal::pac, peripherals = true, dispatchers = [UARTE1])]
+#[rtic::app(device = nrf52840_hal::pac, dispatchers = [UARTE1])]
 mod app {
-    use core::convert::TryInto;
-    use dwt_systick_monotonic::DwtSystick;
+    use dwt_systick_monotonic::{
+        fugit::{MillisDurationU32, TimerInstantU32},
+        DwtSystick, ExtU32,
+    };
     use nrf52840_hal::{
         clocks::Clocks,
         gpio::{p0::Parts, Input, Pin, PullUp},
         gpiote::Gpiote,
         prelude::*,
     };
-    use rtic::time::{duration::Milliseconds, Instant};
+    const FREQ: u32 = 64_000_000;
 
     #[monotonic(binds = SysTick, default = true)]
-    type MyMono = DwtSystick<64_000_000>; // 64 MHz
+    type MyMono = DwtSystick<FREQ>;
 
     #[shared]
     struct Shared {}
@@ -33,7 +35,7 @@ mod app {
 
         ctx.core.DCB.enable_trace();
         ctx.core.DWT.enable_cycle_counter();
-        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, 64_000_000);
+        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, FREQ);
 
         let p0 = Parts::new(ctx.device.P0);
         let btn = p0.p0_11.into_pullup_input().degrade();
@@ -57,21 +59,17 @@ mod app {
     #[task(binds = GPIOTE, local = [gpiote])]
     fn on_gpiote(ctx: on_gpiote::Context) {
         ctx.local.gpiote.reset_events();
-        debounce::spawn_after(Milliseconds(30_u32)).ok();
+        debounce::spawn_after(30.millis()).ok();
     }
 
-    #[task(local = [btn, pressed_at: Option<Instant<MyMono>> = None])]
+    #[task(local = [btn, pressed_at: Option<TimerInstantU32<FREQ>> = None])]
     fn debounce(ctx: debounce::Context) {
         if ctx.local.btn.is_low().unwrap() {
-            ctx.local.pressed_at.replace(monotonics::MyMono::now());
+            ctx.local.pressed_at.replace(monotonics::now());
         } else {
             if let Some(instant) = ctx.local.pressed_at.take() {
-                let diff: Option<Milliseconds> = monotonics::MyMono::now()
-                    .checked_duration_since(&instant)
-                    .and_then(|dur| dur.try_into().ok());
-                if let Some(Milliseconds(t)) = diff {
-                    defmt::info!("Pressed for {} ms", t);
-                }
+                let t: MillisDurationU32 = (monotonics::now() - instant).convert();
+                defmt::info!("Pressed for {} ms", t.ticks());
             }
         }
     }

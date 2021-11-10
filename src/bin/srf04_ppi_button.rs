@@ -3,9 +3,9 @@
 
 use nrf_play as _; // global logger + panicking-behavior + memory layout
 
-#[rtic::app(device = nrf52840_hal::pac, peripherals = true, dispatchers = [UARTE1])]
+#[rtic::app(device = nrf52840_hal::pac, dispatchers = [UARTE1])]
 mod app {
-    use dwt_systick_monotonic::DwtSystick;
+    use dwt_systick_monotonic::{DwtSystick, ExtU32};
     use nrf52840_hal::{
         clocks::Clocks,
         gpio::{p0::Parts, Input, Level, Output, Pin, PullUp, PushPull},
@@ -15,10 +15,10 @@ mod app {
         prelude::*,
         timer::Timer,
     };
-    use rtic::time::duration::Milliseconds;
+    const FREQ: u32 = 64_000_000;
 
     #[monotonic(binds = SysTick, default = true)]
-    type MyMono = DwtSystick<64_000_000>; // 64 MHz
+    type MyMono = DwtSystick<FREQ>;
 
     #[shared]
     struct Shared {}
@@ -37,7 +37,7 @@ mod app {
 
         ctx.core.DCB.enable_trace();
         ctx.core.DWT.enable_cycle_counter();
-        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, 64_000_000);
+        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, FREQ);
 
         let p0 = Parts::new(ctx.device.P0);
         let trig_pin = p0.p0_03.into_push_pull_output(Level::Low).degrade();
@@ -95,7 +95,7 @@ mod app {
         } else {
             // Button hi_to_low triggered the interrupt
             gpiote.reset_events();
-            debounce::spawn_after(Milliseconds(30_u32)).ok();
+            debounce::spawn_after(30.millis()).ok();
         }
     }
 

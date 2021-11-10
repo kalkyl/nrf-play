@@ -3,23 +3,22 @@
 
 use nrf_play as _; // global logger + panicking-behavior + memory layout
 
-#[rtic::app(device = nrf52840_hal::pac, peripherals = true, dispatchers = [UARTE1])]
+#[rtic::app(device = nrf52840_hal::pac, dispatchers = [UARTE1])]
 mod app {
-    use core::convert::TryInto;
-    use dwt_systick_monotonic::DwtSystick;
+    use dwt_systick_monotonic::{
+        fugit::{MicrosDurationU32, TimerInstantU32},
+        DwtSystick, ExtU32,
+    };
     use nrf52840_hal::{
         clocks::Clocks,
         gpio::{p0::Parts, Input, Level, Output, Pin, PullDown, PushPull},
         gpiote::Gpiote,
         prelude::*,
     };
-    use rtic::time::{
-        duration::{Microseconds, Milliseconds},
-        Instant,
-    };
+    const FREQ: u32 = 64_000_000;
 
     #[monotonic(binds = SysTick, default = true)]
-    type MyMono = DwtSystick<64_000_000>; // 64 MHz
+    type MyMono = DwtSystick<FREQ>;
 
     #[shared]
     struct Shared {}
@@ -36,7 +35,7 @@ mod app {
 
         ctx.core.DCB.enable_trace();
         ctx.core.DWT.enable_cycle_counter();
-        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, 64_000_000);
+        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, FREQ);
 
         let p0 = Parts::new(ctx.device.P0);
         let echo_pin = p0.p0_04.into_pulldown_input().degrade();
@@ -72,24 +71,20 @@ mod app {
         ctx.local.trig_pin.set_high().ok();
         cortex_m::asm::delay(640); //10us
         ctx.local.trig_pin.set_low().ok();
-        send_wave::spawn_after(Milliseconds(100_u32)).ok();
+        send_wave::spawn_after(100.millis()).ok();
     }
 
-    #[task(binds = GPIOTE, local = [gpiote, echo_pin, start: Option<Instant<MyMono>> = None])]
+    #[task(binds = GPIOTE, local = [gpiote, echo_pin, start: Option<TimerInstantU32<FREQ>> = None])]
     fn on_gpiote(ctx: on_gpiote::Context) {
         ctx.local.gpiote.reset_events();
         if ctx.local.echo_pin.is_high().unwrap() {
             // Echo pulse started - store start time
-            ctx.local.start.replace(monotonics::MyMono::now());
+            ctx.local.start.replace(monotonics::now());
         } else {
             // Echo pulse ended - calculate pulse duration
             if let Some(instant) = ctx.local.start.take() {
-                let diff: Option<Microseconds> = monotonics::MyMono::now()
-                    .checked_duration_since(&instant)
-                    .and_then(|dur| dur.try_into().ok());
-                if let Some(Microseconds(t)) = diff {
-                    defmt::info!("Distance: {} cm", t as f32 / 58.0);
-                }
+                let t: MicrosDurationU32 = (monotonics::now() - instant).convert();
+                defmt::info!("Distance: {} cm", t.ticks() as f32 / 58.0);
             }
         }
     }

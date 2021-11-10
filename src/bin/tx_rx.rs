@@ -3,24 +3,26 @@
 
 use nrf_play as _; // global logger + panicking-behavior + memory layout
 
-#[rtic::app(device = nrf52840_hal::pac, peripherals = true, dispatchers = [UARTE1])]
+#[rtic::app(device = nrf52840_hal::pac, dispatchers = [UARTE1])]
 mod app {
-    use core::convert::TryInto;
-    use dwt_systick_monotonic::DwtSystick;
+    use dwt_systick_monotonic::{
+        fugit::{MicrosDurationU32, TimerInstantU32},
+        DwtSystick, ExtU32,
+    };
     use nrf52840_hal::{
         clocks::Clocks,
         gpio::{p0::Parts, Level, Output, Pin, PushPull},
         gpiote::Gpiote,
         prelude::*,
     };
-    use rtic::time::{duration::Milliseconds, Instant};
+    const FREQ: u32 = 64_000_000;
 
     #[monotonic(binds = SysTick, default = true)]
-    type MyMono = DwtSystick<64_000_000>; // 64 MHz
+    type MyMono = DwtSystick<FREQ>;
 
     #[shared]
     struct Shared {
-        tx_instant: Option<Instant<MyMono>>,
+        tx_instant: Option<TimerInstantU32<FREQ>>,
     }
 
     #[local]
@@ -35,7 +37,7 @@ mod app {
 
         ctx.core.DCB.enable_trace();
         ctx.core.DWT.enable_cycle_counter();
-        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, 64_000_000);
+        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, FREQ);
 
         let p0 = Parts::new(ctx.device.P0);
         let rx_pin = p0.p0_11.into_pulldown_input().degrade();
@@ -67,22 +69,16 @@ mod app {
         ctx.local.tx_pin.set_high().ok();
         cortex_m::asm::delay(640);
         ctx.local.tx_pin.set_low().ok();
-        ctx.shared
-            .tx_instant
-            .lock(|t| t.replace(monotonics::MyMono::now()));
-        tx::spawn_after(Milliseconds(100_u32)).ok();
+        ctx.shared.tx_instant.lock(|t| t.replace(monotonics::now()));
+        tx::spawn_after(100.millis()).ok();
     }
 
     #[task(binds = GPIOTE, shared = [tx_instant], local = [gpiote])]
     fn rx(mut ctx: rx::Context) {
         ctx.local.gpiote.reset_events();
         if let Some(instant) = ctx.shared.tx_instant.lock(|t| t.take()) {
-            let diff: Option<Milliseconds> = monotonics::MyMono::now()
-                .checked_duration_since(&instant)
-                .and_then(|dur| dur.try_into().ok());
-            if let Some(Milliseconds(t)) = diff {
-                defmt::info!("Response received after {} ms", t);
-            }
+            let t: MicrosDurationU32 = (monotonics::now() - instant).convert();
+            defmt::info!("Distance: {} cm", t.ticks() as f32 / 58.0);
         }
     }
 }

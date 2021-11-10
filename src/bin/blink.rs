@@ -4,15 +4,14 @@
 use nrf_play as _; // global logger + panicking-behavior + memory layout
 mod mono;
 
-#[rtic::app(device = nrf52840_hal::pac, peripherals = true, dispatchers = [UARTE1])]
+#[rtic::app(device = nrf52840_hal::pac, dispatchers = [UARTE1])]
 mod app {
-    use super::mono::MonoTimer;
+    use super::mono::{ExtU32, MonoTimer};
     use nrf52840_hal::{
         gpio::{p0::Parts, Level, Output, Pin, PushPull},
         pac::TIMER0,
         prelude::*,
     };
-    use rtic::time::duration::Seconds;
 
     #[monotonic(binds = TIMER0, default = true)]
     type MyMono = MonoTimer<TIMER0>;
@@ -49,6 +48,6 @@ mod app {
         } else {
             led.set_low().ok();
         }
-        blink::spawn_after(Seconds(1_u32)).ok();
+        blink::spawn_after(1.secs()).ok();
     }
 }

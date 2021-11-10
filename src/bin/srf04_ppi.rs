@@ -3,9 +3,9 @@
 
 use nrf_play as _; // global logger + panicking-behavior + memory layout
 
-#[rtic::app(device = nrf52840_hal::pac, peripherals = true, dispatchers = [UARTE1])]
+#[rtic::app(device = nrf52840_hal::pac, dispatchers = [UARTE1])]
 mod app {
-    use dwt_systick_monotonic::DwtSystick;
+    use dwt_systick_monotonic::{DwtSystick, ExtU32};
     use nrf52840_hal::{
         clocks::Clocks,
         gpio::{p0::Parts, Level, Output, Pin, PushPull},
@@ -15,10 +15,10 @@ mod app {
         prelude::*,
         timer::Timer,
     };
-    use rtic::time::duration::Milliseconds;
+    const FREQ: u32 = 64_000_000;
 
     #[monotonic(binds = SysTick, default = true)]
-    type MyMono = DwtSystick<64_000_000>; // 64 MHz
+    type MyMono = DwtSystick<FREQ>;
 
     #[shared]
     struct Shared {}
@@ -36,7 +36,7 @@ mod app {
 
         ctx.core.DCB.enable_trace();
         ctx.core.DWT.enable_cycle_counter();
-        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, 64_000_000);
+        let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, FREQ);
 
         let p0 = Parts::new(ctx.device.P0);
         let echo_pin = p0.p0_04.into_pulldown_input().degrade();
@@ -84,7 +84,7 @@ mod app {
         ctx.local.trig_pin.set_high().ok();
         cortex_m::asm::delay(640); // 10us
         ctx.local.trig_pin.set_low().ok();
-        send_wave::spawn_after(Milliseconds(100_u32)).ok();
+        send_wave::spawn_after(100.millis()).ok();
     }
 
     #[task(binds = GPIOTE, local = [gpiote, timer])]
