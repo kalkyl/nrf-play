@@ -5,10 +5,7 @@ use nrf_play as _; // global logger + panicking-behavior + memory layout
 
 #[rtic::app(device = nrf52840_hal::pac, dispatchers = [UARTE1])]
 mod app {
-    use dwt_systick_monotonic::{
-        fugit::{MillisDurationU32, TimerInstantU32},
-        DwtSystick, ExtU32,
-    };
+    use dwt_systick_monotonic::{fugit::MillisDurationU32, DwtSystick, ExtU32};
     use nrf52840_hal::{
         clocks::Clocks,
         gpio::{p0::Parts, Input, Pin, PullUp},
@@ -16,6 +13,7 @@ mod app {
         prelude::*,
     };
     const FREQ: u32 = 64_000_000;
+    type Instant = <MyMono as rtic::Monotonic>::Instant;
 
     #[monotonic(binds = SysTick, default = true)]
     type MyMono = DwtSystick<FREQ>;
@@ -32,9 +30,9 @@ mod app {
     #[init]
     fn init(mut ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         let _clocks = Clocks::new(ctx.device.CLOCK).enable_ext_hfosc();
-
         ctx.core.DCB.enable_trace();
         ctx.core.DWT.enable_cycle_counter();
+
         let mono = DwtSystick::new(&mut ctx.core.DCB, ctx.core.DWT, ctx.core.SYST, FREQ);
 
         let p0 = Parts::new(ctx.device.P0);
@@ -51,18 +49,13 @@ mod app {
         (Shared {}, Local { btn, gpiote }, init::Monotonics(mono))
     }
 
-    #[idle]
-    fn idle(_: idle::Context) -> ! {
-        loop {}
-    }
-
     #[task(binds = GPIOTE, local = [gpiote])]
     fn on_gpiote(ctx: on_gpiote::Context) {
         ctx.local.gpiote.reset_events();
         debounce::spawn_after(30.millis()).ok();
     }
 
-    #[task(local = [btn, pressed_at: Option<TimerInstantU32<FREQ>> = None])]
+    #[task(local = [btn, pressed_at: Option<Instant> = None])]
     fn debounce(ctx: debounce::Context) {
         if ctx.local.btn.is_low().unwrap() {
             ctx.local.pressed_at.replace(monotonics::now());
