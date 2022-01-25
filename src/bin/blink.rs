@@ -2,16 +2,15 @@
 #![no_std]
 
 use nrf_play as _; // global logger + panicking-behavior + memory layout
-mod mono;
 
 #[rtic::app(device = nrf52840_hal::pac, dispatchers = [UARTE1])]
 mod app {
-    use super::mono::{ExtU32, MonoTimer};
     use nrf52840_hal::{
         gpio::{p0::Parts, Level, Output, Pin, PushPull},
         pac::TIMER0,
         prelude::*,
     };
+    use nrf_play::mono::{ExtU32, MonoTimer};
 
     #[monotonic(binds = TIMER0, default = true)]
     type MyMono = MonoTimer<TIMER0>;

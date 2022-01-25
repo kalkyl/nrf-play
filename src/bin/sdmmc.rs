@@ -2,24 +2,20 @@
 #![no_std]
 
 use nrf_play as _; // global logger + panicking-behavior + memory layout
-mod mono;
 
 #[rtic::app(device = nrf52840_hal::pac, dispatchers = [UARTE1])]
 mod app {
-    use super::mono::{ExtU32, MonoTimer};
-    use embedded_sdmmc::{
-        Block, BlockCount, BlockDevice, BlockIdx, Controller, Error, Mode, TimeSource, Timestamp,
-        VolumeIdx,
-    };
+    use embedded_sdmmc::{TimeSource, Timestamp, VolumeIdx};
     use nrf52840_hal::{
         gpio::{p0::Parts, Level, Output, Pin, PushPull},
         pac::{SPIM2, TIMER0},
         prelude::*,
         Spim,
     };
+    use nrf_play::mono::{ExtU32, MonoTimer};
 
     #[monotonic(binds = TIMER0, default = true)]
-    type MyMono = MonoTimer<TIMER0>;
+    type Monotonic = MonoTimer<TIMER0>;
 
     #[shared]
     struct Shared {}
@@ -101,7 +97,7 @@ mod app {
         } else {
             led.set_low().ok();
         }
-        blink::spawn_after(1.secs()).ok();
+        blink::spawn_after(1_u32.secs()).ok();
     }
 
     pub struct SdMmcClock;
